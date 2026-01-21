@@ -3,6 +3,7 @@
 *.data
 *.old
 *.s
+/ycsbA_skew_d2pl.csv
 
 .idea
 .vscode
