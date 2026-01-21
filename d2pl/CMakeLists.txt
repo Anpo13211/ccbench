@@ -20,8 +20,18 @@ file(GLOB DBOMB_D2PL_SOURCES
         "util.cc"
         )
 
+file(GLOB YCSB_D2PL_SOURCES
+        "../common/result.cc"
+        "../common/util.cc"
+        "result.cc"
+        "ycsb_d2pl.cc"
+        "transaction.cc"
+        "util.cc"
+        )
+
 add_executable(sbomb_d2pl.exe ${SBOMB_D2PL_SOURCES})
 add_executable(bomb_d2pl.exe ${DBOMB_D2PL_SOURCES})
+add_executable(ycsb_d2pl.exe ${YCSB_D2PL_SOURCES})
 
 target_link_libraries(sbomb_d2pl.exe
         Boost::filesystem
@@ -32,6 +42,14 @@ target_link_libraries(sbomb_d2pl.exe
         )
 
 target_link_libraries(bomb_d2pl.exe
+        Boost::filesystem
+        gflags::gflags
+        ${THIRD_PARTY_DIR}/mimalloc/out/release/libmimalloc.a
+        ${THIRD_PARTY_DIR}/masstree/libkohler_masstree_json.a
+        Threads::Threads
+        )
+
+target_link_libraries(ycsb_d2pl.exe
         Boost::filesystem
         gflags::gflags
         ${THIRD_PARTY_DIR}/mimalloc/out/release/libmimalloc.a
