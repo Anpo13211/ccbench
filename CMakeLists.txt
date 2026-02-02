@@ -19,8 +19,11 @@ if (NOT BUILD_ONLY_D2PL_STANDALONE)
   find_package(Boost COMPONENTS filesystem)
 endif ()
 
-# Standalone D2PL (no Masstree)
+# Standalone (no Masstree)
 add_subdirectory(d2pl_standalone)
+add_subdirectory(ss2pl_standalone)
+add_subdirectory(ss2pl_standalone_c)
+add_subdirectory(d2pl_standalone_c)
 
 if (NOT BUILD_ONLY_D2PL_STANDALONE)
   add_subdirectory(cicada)
