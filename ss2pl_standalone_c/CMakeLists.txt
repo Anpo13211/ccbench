@@ -23,7 +23,8 @@ target_compile_options(ycsb_ss2pl_standalone_c
         PRIVATE -Wall -Wextra -Werror)
 
 target_link_libraries(ycsb_ss2pl_standalone_c
-        Threads::Threads)
+        Threads::Threads
+        m)
 
 if (DEFINED VAL_SIZE)
     target_compile_definitions(ycsb_ss2pl_standalone_c PRIVATE VAL_SIZE=${VAL_SIZE})
