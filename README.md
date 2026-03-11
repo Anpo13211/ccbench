@@ -81,40 +81,63 @@ $ cd ccbench
 $ sudo apt update -y && sudo apt-get install -y $(cat build_tools/ubuntu.deps)
 ```
 
-Then, build a dependent library.
+#### Full build
+
+Build the dependent libraries used by the full CCBench targets.
 
 ```sh
-$ cd ccbench
 $ ./build_tools/bootstrap.sh
 $ ./build_tools/bootstrap_mimalloc.sh
 ```
 
-Finally, build benchmark binaries with all supported protocols.
+Then build all workloads and protocols from the repository root. This also builds the standalone YCSB targets under `build/d2pl_standalone/`, `build/ss2pl_standalone/`, `build/d2pl_standalone_c/`, and `build/ss2pl_standalone_c/`.
 
 ```sh
-$ mkdir build
-$ cd build
-$ cmake -DCMAKE_BUILD_TYPE=Release ..
-$ make
+$ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+$ cmake --build build -j
+```
+
+#### Standalone YCSB only
+
+If you only want the standalone YCSB benchmarks without Masstree or mimalloc, you can build each target directly from its subdirectory.
+
+```sh
+$ cmake -S d2pl_standalone -B d2pl_standalone/build -DCMAKE_BUILD_TYPE=Release
+$ cmake --build d2pl_standalone/build --target ycsb_d2pl_standalone.exe
+$ cmake -S ss2pl_standalone -B ss2pl_standalone/build -DCMAKE_BUILD_TYPE=Release
+$ cmake --build ss2pl_standalone/build --target ycsb_ss2pl_standalone.exe
+$ cmake -S d2pl_standalone_c -B d2pl_standalone_c/build -DCMAKE_BUILD_TYPE=Release
+$ cmake --build d2pl_standalone_c/build --target ycsb_d2pl_standalone_c
+$ cmake -S ss2pl_standalone_c -B ss2pl_standalone_c/build -DCMAKE_BUILD_TYPE=Release
+$ cmake --build ss2pl_standalone_c/build --target ycsb_ss2pl_standalone_c
 ```
 
 ### Run
 
 You can run three benchmark workloads with various protocols: YCSB, TPC-C, and BoMB. BoMB (Bill of Materials Benchmark) is a new OLTP benchmark reproducing a workload for manufacturing companies, including long-running update transactions and various short transactions.
 
-For example, if you want to run BoMB with Silo, run the following command.
+#### Full CCBench binaries
+
+Run these commands from the root build directory created by `cmake -S . -B build ...`.
 
 ```sh
 $ cd build
-$ ./silo/bomb_silo.exe --thread-num 8 --bomb-mixed-mode --bomb-mixed-short-rate 1000
+$ ./silo/bomb_silo.exe --thread_num=8 --bomb_mixed_mode --bomb_mixed_short_rate=1000
+$ ./tictoc/bomb_tictoc.exe --thread_num=8 --bomb_mixed_mode --bomb_mixed_short_rate=1000
+$ ./cicada/tpcc_cicada.exe --thread_num=8 --tpcc_num_wh=8
+$ ./cicada/ycsb_cicada.exe --thread_num=8 --ycsb_rratio=50 --ycsb_max_ope=10 --ycsb_tuple_num=1000000 --ycsb_zipf_skew=0
+$ ./silo/ycsb_silo.exe --thread_num=8 --ycsb_rratio=50 --ycsb_max_ope=10 --ycsb_tuple_num=1000000 --ycsb_zipf_skew=0
 ```
 
-Workloads and protocols can be switched like the following.
+#### Standalone YCSB binaries
+
+Run these commands from the repository root after building the corresponding standalone target. If you built everything from the root `build/` directory instead, use `./build/d2pl_standalone/...` and similar paths.
 
 ```sh
-$ ./tictoc/bomb_tictoc.exe --thread-num 8 --bomb-mixed-mode --bomb-mixed-short-rate 1000
-$ ./cicada/tpcc_cicada.exe --thread-num 8 --tpcc-num-wh 8
-$ ./cicada/ycsb_cicada.exe --thread-num 8 --ycsb-rratio 50
+$ ./d2pl_standalone/build/ycsb_d2pl_standalone.exe --thread_num=8 --extime=3 --ycsb_tuple_num=1000000 --ycsb_max_ope=10 --ycsb_rratio=50 --ycsb_zipf_skew=0
+$ ./ss2pl_standalone/build/ycsb_ss2pl_standalone.exe --thread_num=8 --extime=3 --ycsb_tuple_num=1000000 --ycsb_max_ope=10 --ycsb_rratio=50 --ycsb_zipf_skew=0
+$ ./d2pl_standalone_c/build/ycsb_d2pl_standalone_c --thread_num=8 --extime=3 --ycsb_tuple_num=1000000 --ycsb_max_ope=10 --ycsb_rratio=50 --ycsb_zipf_skew=0
+$ ./ss2pl_standalone_c/build/ycsb_ss2pl_standalone_c --thread_num=8 --extime=3 --ycsb_tuple_num=1000000 --ycsb_max_ope=10 --ycsb_rratio=50 --ycsb_zipf_skew=0
 ```
 
 See usage with the `--help` option for details of the workload-specific options.
