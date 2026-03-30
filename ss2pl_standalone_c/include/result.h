@@ -9,4 +9,4 @@ typedef struct Result {
 
 void result_init(Result *res);
 void result_add(Result *dst, const Result *src);
-void result_print(const Result *total, uint64_t extime, uint64_t thread_num);
+void result_print(const Result *total, double elapsed_sec, uint64_t thread_num);

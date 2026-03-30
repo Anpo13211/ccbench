@@ -111,6 +111,7 @@ int tx_locklist(Transaction *tx) {
 int tx_read(Transaction *tx, uint64_t key, char out_val[VAL_SIZE]) {
   int widx = find_write(tx, key);
   if (widx >= 0) {
+    if (tx->write_set[widx].op == WOP_DELETE) return -1;
     memcpy(out_val, tx->write_set[widx].val, VAL_SIZE);
     return 0;
   }
@@ -134,7 +135,9 @@ int tx_read(Transaction *tx, uint64_t key, char out_val[VAL_SIZE]) {
 int tx_write(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
   int widx = find_write(tx, key);
   if (widx >= 0) {
-    memcpy(tx->write_set[widx].val, val, VAL_SIZE);
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op == WOP_DELETE) return -1;
+    memcpy(we->val, val, VAL_SIZE);
     return 0;
   }
 
@@ -144,31 +147,53 @@ int tx_write(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_UPDATE;
+  tx->write_set[tx->write_count].existed_before_tx = 1;
   memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
   tx->write_count++;
   return 0;
 }
 
 int tx_insert(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
-  if (find_write(tx, key) >= 0) return -3;
+  int widx = find_write(tx, key);
+  if (widx >= 0) {
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op != WOP_DELETE) return -3;
+    we->op = WOP_INSERT;
+    memcpy(we->val, val, VAL_SIZE);
+    return 0;
+  }
   if (key >= g_cfg.tuple_num) return -1;
   Tuple *tuple = &Table[key];
   if (atomic_load_explicit(&tuple->present, memory_order_acquire)) return -3;
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_INSERT;
+  tx->write_set[tx->write_count].existed_before_tx = 0;
   memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
   tx->write_count++;
   return 0;
 }
 
 int tx_delete(Transaction *tx, uint64_t key) {
-  for (size_t i = 0; i < tx->write_count; ++i) {
-    if (tx->write_set[i].key == key) {
-      tx->write_set[i] = tx->write_set[tx->write_count - 1];
-      tx->write_count--;
-      break;
+  int widx = find_write(tx, key);
+  if (widx >= 0) {
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op == WOP_INSERT) {
+      if (!we->existed_before_tx) {
+        tx->write_set[widx] = tx->write_set[tx->write_count - 1];
+        tx->write_count--;
+        return 0;
+      }
+      we->op = WOP_DELETE;
+      memset(we->val, 0, VAL_SIZE);
+      return 0;
     }
+    if (we->op == WOP_UPDATE) {
+      we->op = WOP_DELETE;
+      memset(we->val, 0, VAL_SIZE);
+      return 0;
+    }
+    return 0;
   }
 
   if (key >= g_cfg.tuple_num) return -1;
@@ -177,6 +202,7 @@ int tx_delete(Transaction *tx, uint64_t key) {
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_DELETE;
+  tx->write_set[tx->write_count].existed_before_tx = 1;
   memset(tx->write_set[tx->write_count].val, 0, VAL_SIZE);
   tx->write_count++;
   return 0;

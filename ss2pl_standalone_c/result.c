@@ -13,19 +13,20 @@ void result_add(Result *dst, const Result *src) {
   dst->abort_count += src->abort_count;
 }
 
-void result_print(const Result *total, uint64_t extime, uint64_t thread_num) {
+void result_print(const Result *total, double elapsed_sec, uint64_t thread_num) {
   uint64_t commits = total->commit_count;
   uint64_t aborts = total->abort_count;
   double abort_rate = 0.0;
   if (commits + aborts > 0) {
     abort_rate = (double)aborts / (double)(commits + aborts);
   }
-  uint64_t tps = extime ? (commits / extime) : 0;
-  double latency = tps ? (1e9 / (double)tps) * (double)thread_num : 0.0;
+  double tps = elapsed_sec > 0.0 ? (double)commits / elapsed_sec : 0.0;
+  double latency =
+      commits ? (elapsed_sec * 1e9 * (double)thread_num) / (double)commits : 0.0;
 
   printf("abort_counts_:\t%llu\n", (unsigned long long)aborts);
   printf("commit_counts_:\t%llu\n", (unsigned long long)commits);
   printf("abort_rate:\t%.4f\n", abort_rate);
   printf("latency[ns]:\t%.4f\n", latency);
-  printf("throughput[tps]:\t%llu\n", (unsigned long long)tps);
+  printf("throughput[tps]:\t%.4f\n", tps);
 }

@@ -28,6 +28,7 @@ typedef struct ReadEntry {
 typedef struct WriteEntry {
   uint64_t key;
   WriteOp op;
+  int existed_before_tx;
   char val[VAL_SIZE];
 } WriteEntry;
 

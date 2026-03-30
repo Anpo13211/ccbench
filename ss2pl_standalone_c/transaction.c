@@ -97,6 +97,7 @@ void tx_destroy(Transaction *tx) {
 int tx_read(Transaction *tx, uint64_t key, char out_val[VAL_SIZE]) {
   int widx = find_write(tx, key);
   if (widx >= 0) {
+    if (tx->write_set[widx].op == WOP_DELETE) return -1;
     memcpy(out_val, tx->write_set[widx].val, VAL_SIZE);
     return 0;
   }
@@ -108,6 +109,11 @@ int tx_read(Transaction *tx, uint64_t key, char out_val[VAL_SIZE]) {
 
   if (key >= g_cfg.tuple_num) return -1;
   Tuple *tuple = &Table[key];
+  if (has_w_lock(tx, &tuple->lock)) {
+    if (!atomic_load_explicit(&tuple->present, memory_order_acquire)) return -1;
+    memcpy(out_val, tuple->val, VAL_SIZE);
+    return 0;
+  }
 
 #ifdef DLR0
   rwlock_r_lock(&tuple->lock);
@@ -133,13 +139,26 @@ int tx_read(Transaction *tx, uint64_t key, char out_val[VAL_SIZE]) {
 int tx_write(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
   int widx = find_write(tx, key);
   if (widx >= 0) {
-    memcpy(tx->write_set[widx].val, val, VAL_SIZE);
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op == WOP_DELETE) return -1;
+    memcpy(we->val, val, VAL_SIZE);
+    return 0;
+  }
+
+  if (key >= g_cfg.tuple_num) return -1;
+  Tuple *tuple = &Table[key];
+  if (has_w_lock(tx, &tuple->lock)) {
+    if (!atomic_load_explicit(&tuple->present, memory_order_acquire)) return -1;
+    tx->write_set[tx->write_count].key = key;
+    tx->write_set[tx->write_count].op = WOP_UPDATE;
+    tx->write_set[tx->write_count].existed_before_tx = 1;
+    memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
+    tx->write_count++;
     return 0;
   }
 
   int ridx = find_read(tx, key);
   if (ridx >= 0) {
-    Tuple *tuple = &Table[key];
     if (!rwlock_tryupgrade(&tuple->lock)) {
       tx->status = TX_ABORTED;
       return -2;
@@ -154,13 +173,11 @@ int tx_write(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
 
     tx->write_set[tx->write_count].key = key;
     tx->write_set[tx->write_count].op = WOP_UPDATE;
+    tx->write_set[tx->write_count].existed_before_tx = 1;
     memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
     tx->write_count++;
     return 0;
   }
-
-  if (key >= g_cfg.tuple_num) return -1;
-  Tuple *tuple = &Table[key];
 
 #ifdef DLR0
   rwlock_w_lock(&tuple->lock);
@@ -178,15 +195,32 @@ int tx_write(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_UPDATE;
+  tx->write_set[tx->write_count].existed_before_tx = 1;
   memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
   tx->write_count++;
   return 0;
 }
 
 int tx_insert(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
-  if (find_write(tx, key) >= 0) return -3;
+  int widx = find_write(tx, key);
+  if (widx >= 0) {
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op != WOP_DELETE) return -3;
+    we->op = WOP_INSERT;
+    memcpy(we->val, val, VAL_SIZE);
+    return 0;
+  }
   if (key >= g_cfg.tuple_num) return -1;
   Tuple *tuple = &Table[key];
+  if (has_w_lock(tx, &tuple->lock)) {
+    if (atomic_load_explicit(&tuple->present, memory_order_acquire)) return -3;
+    tx->write_set[tx->write_count].key = key;
+    tx->write_set[tx->write_count].op = WOP_INSERT;
+    tx->write_set[tx->write_count].existed_before_tx = 0;
+    memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
+    tx->write_count++;
+    return 0;
+  }
 
 #ifdef DLR0
   rwlock_w_lock(&tuple->lock);
@@ -204,13 +238,32 @@ int tx_insert(Transaction *tx, uint64_t key, const char val[VAL_SIZE]) {
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_INSERT;
+  tx->write_set[tx->write_count].existed_before_tx = 0;
   memcpy(tx->write_set[tx->write_count].val, val, VAL_SIZE);
   tx->write_count++;
   return 0;
 }
 
 int tx_delete(Transaction *tx, uint64_t key) {
-  remove_write_entry(tx, key);
+  int widx = find_write(tx, key);
+  if (widx >= 0) {
+    WriteEntry *we = &tx->write_set[widx];
+    if (we->op == WOP_INSERT) {
+      if (!we->existed_before_tx) {
+        remove_write_entry(tx, key);
+        return 0;
+      }
+      we->op = WOP_DELETE;
+      memset(we->val, 0, VAL_SIZE);
+      return 0;
+    }
+    if (we->op == WOP_UPDATE) {
+      we->op = WOP_DELETE;
+      memset(we->val, 0, VAL_SIZE);
+      return 0;
+    }
+    return 0;
+  }
   if (key >= g_cfg.tuple_num) return -1;
   Tuple *tuple = &Table[key];
 
@@ -218,6 +271,7 @@ int tx_delete(Transaction *tx, uint64_t key) {
     if (!atomic_load_explicit(&tuple->present, memory_order_acquire)) return -1;
     tx->write_set[tx->write_count].key = key;
     tx->write_set[tx->write_count].op = WOP_DELETE;
+    tx->write_set[tx->write_count].existed_before_tx = 1;
     memset(tx->write_set[tx->write_count].val, 0, VAL_SIZE);
     tx->write_count++;
     return 0;
@@ -237,6 +291,7 @@ int tx_delete(Transaction *tx, uint64_t key) {
     }
     tx->write_set[tx->write_count].key = key;
     tx->write_set[tx->write_count].op = WOP_DELETE;
+    tx->write_set[tx->write_count].existed_before_tx = 1;
     memset(tx->write_set[tx->write_count].val, 0, VAL_SIZE);
     tx->write_count++;
     return 0;
@@ -258,6 +313,7 @@ int tx_delete(Transaction *tx, uint64_t key) {
 
   tx->write_set[tx->write_count].key = key;
   tx->write_set[tx->write_count].op = WOP_DELETE;
+  tx->write_set[tx->write_count].existed_before_tx = 1;
   memset(tx->write_set[tx->write_count].val, 0, VAL_SIZE);
   tx->write_count++;
   return 0;
